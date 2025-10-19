@@ -27,13 +27,17 @@ export default async function handler(req, res) {
     }
 
     const ac = new AbortController();
-    const to = setTimeout(() => ac.abort(), 8000);
+    const to = setTimeout(() => ac.abort(), 15000);
     const UA = 'Mozilla/5.0 (FinFeed2 Fetch Relay)';
 
     const r = await fetch(u.toString(), {
-      headers: { 'user-agent': UA, 'accept': 'application/rss+xml, application/xml, text/xml, text/plain' },
-      redirect: 'follow',
-      signal: ac.signal
+    headers: {
+      'user-agent': 'Mozilla/5.0 (FinFeed2 Fetch Relay)',
+      'accept': 'text/csv, application/rss+xml, application/xml, text/xml, text/plain',
+      'accept-encoding': 'identity'
+    },
+    redirect: 'follow',
+    signal: ac.signal
     });
     clearTimeout(to);
 
@@ -41,6 +45,8 @@ export default async function handler(req, res) {
     res.status(r.ok ? 200 : r.status);
     res.setHeader('content-type', r.headers.get('content-type') || 'application/xml; charset=utf-8');
     res.setHeader('cache-control', 'no-store');
+    res.setHeader('x-deploy', process.env.VERCEL_GIT_COMMIT_SHA || 'local');
+    res.setHeader('x-allow-hosts', JSON.stringify([...ALLOW]));
     res.send(txt);
   } catch (e) {
     res.status(502).send('fetch error');
