@@ -5,20 +5,13 @@
 
 const ALLOW = new Set([
   // твои источники
-  'www.federalreserve.gov',
-  'www.ecb.europa.eu',
-  'finance.yahoo.com',
-  'www.reuters.com',
   'www.cnbc.com',
-  'feeds.content.dowjones.io',
-  'www.coindesk.com',
-  'www.bls.gov',
-  'www.bea.gov',
-  'home.treasury.gov',
-
-  // 🔥 добавляем stooq для цен
+  'cnbc.com',
+  'search.cnbc.com', 
   'stooq.com',
+  'www.stooq.com',
   'stooq.pl',
+  'www.stooq.pl'
 ]);
 
 function getToken(req) {
