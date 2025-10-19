@@ -1,79 +1,64 @@
-// /api/fetch.js — secure fetch relay (RSS/CSV/HTML/JSON)
-// Принимает секрет из заголовка: x-proxy-secret: <token>
-// или Authorization: Bearer <token>, или ?secret=<token>
-// Секрет берётся из process.env.FETCH_SECRET ИЛИ VERCEL_FETCH_SECRET.
+// /api/fetch.js — secure fetch relay (Vercel)
+// Requires env: FETCH_SECRET
 
-const ALLOW = new Set([
-  // твои источники
-  'www.cnbc.com',
-  'cnbc.com',
-  'search.cnbc.com', 
-  'stooq.com',
-  'www.stooq.com',
-  'stooq.pl',
-  'www.stooq.pl'
-]);
+const ALLOW_DOMAINS = ["cnbc.com", "stooq.com", "stooq.pl"]; // разрешаем любые поддомены
 
-function getToken(req) {
-  const q = req.query || {};
-  const h = req.headers || {};
-  const bearer = (h.authorization || '').trim(); // "Bearer xxx"
-  if (h['x-proxy-secret']) return String(h['x-proxy-secret']).trim();
-  if (q.secret) return String(q.secret).trim();
-  if (bearer.toLowerCase().startsWith('bearer ')) return bearer.slice(7).trim();
-  return '';
+function hostAllowed(host) {
+  const h = String(host || "").toLowerCase();
+  return ALLOW_DOMAINS.some(d => h === d || h.endsWith("." + d));
 }
 
 export default async function handler(req, res) {
   try {
-    const token = getToken(req);
-    const SECRET = (process.env.FETCH_SECRET || process.env.VERCEL_FETCH_SECRET || '').trim();
-    if (!SECRET || token !== SECRET) {
-      return res.status(401).send('unauthorized');
+    // 0) Секрет
+    const secret = req.headers["x-proxy-secret"] || req.query.secret;
+    if (!process.env.FETCH_SECRET || secret !== process.env.FETCH_SECRET) {
+      return res.status(401).send("unauthorized");
     }
 
-    const url = (req.query && req.query.url) ? String(req.query.url) : '';
-    if (!url) return res.status(400).send('missing url');
+    // 0.1) Диагностика деплоя
+    if (req.query.info === "1") {
+      return res.status(200).json({
+        ok: true,
+        allow: ALLOW_DOMAINS,
+        commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+        now: new Date().toISOString()
+      });
+    }
+
+    // 1) Валидация URL
+    const url = req.query.url;
+    if (!url) return res.status(400).send("missing url");
 
     let u;
-    try { u = new URL(url); } catch { return res.status(400).send('bad url'); }
-    if (!(u.protocol === 'https:' || u.protocol === 'http:')) {
-      return res.status(400).send('bad protocol');
+    try { u = new URL(url); } catch { return res.status(400).send("bad url"); }
+    if (!(u.protocol === "https:" || u.protocol === "http:")) {
+      return res.status(400).send("bad protocol");
     }
-    if (!ALLOW.has(u.hostname)) {
-      return res.status(403).send('host not allowed');
+    if (!hostAllowed(u.hostname)) {
+      return res.status(403).send("host not allowed");
     }
 
-    // 8–12s таймаут — stooq иногда тупит
+    // 2) Проксируем запрос
     const ac = new AbortController();
-    const to = setTimeout(() => ac.abort(), 12000);
+    const to = setTimeout(() => ac.abort(), 10000);
 
-    // Важно: разрешаем CSV (stooq), XML (RSS), JSON и HTML
-    const UA = 'Mozilla/5.0 (FinFeed Fetch Relay)';
-    const r = await fetch(u.toString(), {
-      method: 'GET',
+    const resp = await fetch(u.toString(), {
       headers: {
-        'user-agent': UA,
-        'accept':
-          'text/csv, application/rss+xml, application/xml, text/xml, application/json, text/html, */*;q=0.1',
+        "user-agent": "Mozilla/5.0 (FinFeed Relay)",
+        "accept": "application/rss+xml, application/xml, text/xml, text/plain, */*"
       },
-      redirect: 'follow',
-      signal: ac.signal,
-    }).catch((e) => {
-      clearTimeout(to);
-      throw e;
+      redirect: "follow",
+      signal: ac.signal
     });
     clearTimeout(to);
 
-    // Пробрасываем статус/типы
-    const ct = r.headers.get('content-type') || 'text/plain; charset=utf-8';
-    res.status(r.status);
-    res.setHeader('content-type', ct);
-    res.setHeader('cache-control', 'no-store');
-
-    const buf = await r.arrayBuffer();
-    res.send(Buffer.from(buf));
+    const text = await resp.text();
+    res.status(resp.status);
+    res.setHeader("content-type", resp.headers.get("content-type") || "text/plain; charset=utf-8");
+    res.setHeader("cache-control", "no-store");
+    return res.send(text);
   } catch (e) {
-    res.status(502).send('fetch error');
+    return res.status(502).send("fetch error");
   }
 }
