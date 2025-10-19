@@ -1,20 +1,45 @@
-// Vercel Serverless Function: secure fetch relay for RSS/XML
-// File path in your Vercel project: /api/fetch.js
-// Env: set FETCH_SECRET in Vercel Project Settings → Environment Variables
+// /api/fetch.js — secure fetch relay (RSS/CSV/HTML/JSON)
+// Принимает секрет из заголовка: x-proxy-secret: <token>
+// или Authorization: Bearer <token>, или ?secret=<token>
+// Секрет берётся из process.env.FETCH_SECRET ИЛИ VERCEL_FETCH_SECRET.
 
 const ALLOW = new Set([
+  // твои источники
+  'www.federalreserve.gov',
+  'www.ecb.europa.eu',
+  'finance.yahoo.com',
+  'www.reuters.com',
   'www.cnbc.com',
+  'feeds.content.dowjones.io',
+  'www.coindesk.com',
+  'www.bls.gov',
+  'www.bea.gov',
+  'home.treasury.gov',
+
+  // 🔥 добавляем stooq для цен
   'stooq.com',
-  'stooq.pl'
+  'stooq.pl',
 ]);
+
+function getToken(req) {
+  const q = req.query || {};
+  const h = req.headers || {};
+  const bearer = (h.authorization || '').trim(); // "Bearer xxx"
+  if (h['x-proxy-secret']) return String(h['x-proxy-secret']).trim();
+  if (q.secret) return String(q.secret).trim();
+  if (bearer.toLowerCase().startsWith('bearer ')) return bearer.slice(7).trim();
+  return '';
+}
 
 export default async function handler(req, res) {
   try {
-    const secret = req.headers['x-proxy-secret'] || req.query.secret;
-    if (!process.env.FETCH_SECRET || secret !== process.env.FETCH_SECRET) {
+    const token = getToken(req);
+    const SECRET = (process.env.FETCH_SECRET || process.env.VERCEL_FETCH_SECRET || '').trim();
+    if (!SECRET || token !== SECRET) {
       return res.status(401).send('unauthorized');
     }
-    const url = req.query.url;
+
+    const url = (req.query && req.query.url) ? String(req.query.url) : '';
     if (!url) return res.status(400).send('missing url');
 
     let u;
@@ -26,28 +51,35 @@ export default async function handler(req, res) {
       return res.status(403).send('host not allowed');
     }
 
+    // 8–12s таймаут — stooq иногда тупит
     const ac = new AbortController();
-    const to = setTimeout(() => ac.abort(), 15000);
-    const UA = 'Mozilla/5.0 (FinFeed2 Fetch Relay)';
+    const to = setTimeout(() => ac.abort(), 12000);
 
+    // Важно: разрешаем CSV (stooq), XML (RSS), JSON и HTML
+    const UA = 'Mozilla/5.0 (FinFeed Fetch Relay)';
     const r = await fetch(u.toString(), {
-    headers: {
-      'user-agent': 'Mozilla/5.0 (FinFeed2 Fetch Relay)',
-      'accept': 'text/csv, application/rss+xml, application/xml, text/xml, text/plain',
-      'accept-encoding': 'identity'
-    },
-    redirect: 'follow',
-    signal: ac.signal
+      method: 'GET',
+      headers: {
+        'user-agent': UA,
+        'accept':
+          'text/csv, application/rss+xml, application/xml, text/xml, application/json, text/html, */*;q=0.1',
+      },
+      redirect: 'follow',
+      signal: ac.signal,
+    }).catch((e) => {
+      clearTimeout(to);
+      throw e;
     });
     clearTimeout(to);
 
-    const txt = await r.text();
-    res.status(r.ok ? 200 : r.status);
-    res.setHeader('content-type', r.headers.get('content-type') || 'application/xml; charset=utf-8');
+    // Пробрасываем статус/типы
+    const ct = r.headers.get('content-type') || 'text/plain; charset=utf-8';
+    res.status(r.status);
+    res.setHeader('content-type', ct);
     res.setHeader('cache-control', 'no-store');
-    res.setHeader('x-deploy', process.env.VERCEL_GIT_COMMIT_SHA || 'local');
-    res.setHeader('x-allow-hosts', JSON.stringify([...ALLOW]));
-    res.send(txt);
+
+    const buf = await r.arrayBuffer();
+    res.send(Buffer.from(buf));
   } catch (e) {
     res.status(502).send('fetch error');
   }
