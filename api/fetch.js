@@ -3,16 +3,9 @@
 // Env: set FETCH_SECRET in Vercel Project Settings → Environment Variables
 
 const ALLOW = new Set([
-  'www.federalreserve.gov',
-  'www.ecb.europa.eu',
-  'finance.yahoo.com',
-  'www.reuters.com',
   'www.cnbc.com',
-  'feeds.content.dowjones.io',
-  'www.coindesk.com',
-  'www.bls.gov',
-  'www.bea.gov',
-  'home.treasury.gov'
+  'stooq.com',
+  'stooq.pl'
 ]);
 
 export default async function handler(req, res) {
