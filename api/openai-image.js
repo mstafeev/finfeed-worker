@@ -1,5 +1,5 @@
 // /api/openai-image.js — OpenAI Images relay (Vercel)
-// Требует env: OPENAI_API_KEY, FETCH_SECRET (тот же секрет, что в fetch.js)
+// Требует env: OPENAI_API_KEY, VERCEL_FETCH_SECRET= (тот же секрет, что в fetch.js)
 
 export default async function handler(req, res) {
   try {
@@ -11,7 +11,7 @@ export default async function handler(req, res) {
 
     // 1) секрет (как в fetch.js)
     const secret = req.headers["x-proxy-secret"] || req.query.secret;
-    if (process.env.FETCH_SECRET && secret !== process.env.FETCH_SECRET) {
+    if (process.env.VERCEL_FETCH_SECRET= && secret !== process.env.VERCEL_FETCH_SECRET=) {
       res.status(401).send("unauthorized");
       return;
     }
